@@ -1,4 +1,4 @@
-# gamut clipping: experimental gamut clipping in oklab space using Bjorn Ottosson's methods
+# okgmtclp: experimental gamut clipping in oklab space using Bjorn Ottosson's methods
 
 this module implements Björn Ottosson's Oklab gamut clipping methods
 https://bottosson.github.io/posts/gamutclipping/. Some additional 
@@ -26,6 +26,10 @@ Björn Ottosson's Oklab gamut clipping methods: https://bottosson.github.io/post
 * `L0` luminance point to project to. L0=0.5 is hue independent. L0=L_cusp will project to the luminance value equal to that of the cusp of the hue
 * `project` projection target. single point will project all out-of-gamut points to the same target. adaptive blends between pure chroma compression and projection towards a single point
 * `alpha` only applicable when the projection is adaptive
+* `dspyl` selected luminance value for the dspy preview. ignored if picked input is connected
+* `dspyc` selected chroma value for the dspy preview. ignored if picked input is connected
+* `dspyh` selected hue value for the dspy preview. ignored if picked input is connected
+
 
 ## connectors
 
