@@ -1,12 +1,11 @@
+#include "shared.glsl"
+
 const float FLT_MAX = 3.402823466e+38;
-#define RGB vec3
-#define Lab vec3
-#define LC vec2
 
 // h in radian
-Lab oklab_LCh_to_Lab(float L, float C, float h) 
+vec3 oklab_LCh_to_Lab(float L, float C, float h) 
 {
-  Lab lab;
+  vec3 lab;
   lab.x = L;
   lab.y = C * cos(h);
   lab.z = C * sin(h);
@@ -14,14 +13,14 @@ Lab oklab_LCh_to_Lab(float L, float C, float h)
 }
 
 // h in radian
-Lab oklab_Lab_to_LCh(float L, float a, float b) 
+vec3 oklab_Lab_to_LCh(float L, float a, float b) 
 {
   float C = sqrt(a * a + b * b);
   float h = atan(b, a);
   return vec3(L, C, h);
 }
 
-#define COLOR_SPACE    COLOR_SPACE_Rec2020    // choose color space from below macro
+#define COLOR_SPACE    COLOR_SPACE_Rec2020    // choose color space from below definition
 
 #define COLOR_SPACE_sRGB      1
 #define COLOR_SPACE_P3_D65    2
@@ -29,33 +28,25 @@ Lab oklab_Lab_to_LCh(float L, float a, float b)
 #define COLOR_SPACE_Rec2020   4
 #define COLOR_SPACE_ACEScg    5
 
-#if COLOR_SPACE == COLOR_SPACE_sRGB
-// sRGB
+#if COLOR_SPACE == COLOR_SPACE_sRGB         // sRGB
 #define COLOR_PRIMARIES ColorPrimaries(vec2(0.64f, 0.33f), vec2(0.3f, 0.6f), vec2(0.15f, 0.06f), vec2(0.3127f, 0.329f))
 #define NEED_WHITE_POINT_CAT    0
 
-#elif COLOR_SPACE == COLOR_SPACE_P3_D65
-// P3 D65
+#elif COLOR_SPACE == COLOR_SPACE_P3_D65     // P3 D65
 #define COLOR_PRIMARIES ColorPrimaries(vec2(0.68f	, 0.32f		), vec2(0.265f	, 0.69f	), vec2(0.15f	, 0.06f		), vec2(0.3127f	, 0.329f	))
 #define NEED_WHITE_POINT_CAT    0
 
-#elif COLOR_SPACE == COLOR_SPACE_AdobeRGB
-// AdobeRGB
+#elif COLOR_SPACE == COLOR_SPACE_AdobeRGB   // AdobeRGB
 #define COLOR_PRIMARIES ColorPrimaries(vec2(0.64f	, 0.33f		), vec2(0.21f	, 0.71f	), vec2(0.15f	, 0.06f		), vec2(0.3127f	, 0.329f	))
 #define NEED_WHITE_POINT_CAT    0
 
-#elif COLOR_SPACE == COLOR_SPACE_Rec2020
-// Rec2020
+#elif COLOR_SPACE == COLOR_SPACE_Rec2020   // Rec2020
 #define	 COLOR_PRIMARIES ColorPrimaries(vec2(0.708f	, 0.292f	), vec2(0.17f	, 0.797f), vec2(0.131f	, 0.046f	), vec2(0.3127f	, 0.329f	))
 #define NEED_WHITE_POINT_CAT    0
 
-#elif COLOR_SPACE == COLOR_SPACE_ACEScg
-// ACEScg
+#elif COLOR_SPACE == COLOR_SPACE_ACEScg    // ACEScg
 #define	 COLOR_PRIMARIES ColorPrimaries(vec2(0.713f	, 0.293f	), vec2(0.165f	, 0.830f), vec2(0.128f	, 0.044f	), vec2(0.32168f, 0.33767f	))
 #define NEED_WHITE_POINT_CAT    1  // ACES use a white point near D60, which is different from Oklab D65, so need chromatic adaptation
-
-#else
-Unknown COLOR_SPACE, please define the COLOR_PRIMARIES and NEED_WHITE_POINT_CAT
 #endif
 
 
@@ -67,8 +58,6 @@ Unknown COLOR_SPACE, please define the COLOR_PRIMARIES and NEED_WHITE_POINT_CAT
 #define mtx_OklabLMS_XYZ	transpose(mat3(	1.227013851103521026    ,  -0.5577999806518222383 ,  0.28125614896646780758, \
                                             -0.040580178423280593977,   1.1122568696168301049 ,  -0.071676678665601200577, \
                                             -0.076381284505706892869,  -0.42148197841801273055,  1.5861632204407947575 ))
-                                    
-#define PI     3.14159265359
 
 struct ColorPrimaries
 {
@@ -78,7 +67,7 @@ struct ColorPrimaries
 	vec2	white;
 };
 
-vec3	xyY_to_XYZ(vec3 color)
+vec3 xyY_to_XYZ(vec3 color)
 {
 	float x= color.x;
 	float y= color.y;
@@ -86,13 +75,13 @@ vec3	xyY_to_XYZ(vec3 color)
 	return vec3(x*Y/y, Y, (1.0f - x - y)*Y/y);
 }
 
-vec3	xyY_to_XYZ(vec2 xy, float Y)
+vec3 xyY_to_XYZ(vec2 xy, float Y)
 {
 	return xyY_to_XYZ(vec3(xy, Y));
 }
 
 // http://www.brucelindbloom.com/index.html?Eqn_RGB_XYZ_Matrix.html
-mat3	colorSpace_to_XYZ(ColorPrimaries colorPrimaries, float whitePointY)
+mat3 colorSpace_to_XYZ(ColorPrimaries colorPrimaries, float whitePointY)
 {
 	vec3 XYZr= xyY_to_XYZ(colorPrimaries.red	, 1.0f);
 	vec3 XYZg= xyY_to_XYZ(colorPrimaries.green	, 1.0f);
@@ -103,9 +92,9 @@ mat3	colorSpace_to_XYZ(ColorPrimaries colorPrimaries, float whitePointY)
 	return mat3(XYZr * S.x, XYZg * S.y, XYZb * S.z);
 }
 
-mat3	XYZ_to_colorSpace(ColorPrimaries colorPrimaries, float whitePointY)
+mat3 XYZ_to_colorSpace(ColorPrimaries colorPrimaries, float whitePointY)
 {
-    return inverse(colorSpace_to_XYZ(colorPrimaries, whitePointY));
+  return inverse(colorSpace_to_XYZ(colorPrimaries, whitePointY));
 }
 
 // Chromatic Adaptation transformation between differnt white point,
@@ -124,74 +113,74 @@ mat3 mtx_CAT(vec2 chromaticityWhiteDest, vec2 chromaticityWhiteSrc)
 	vec3 src_coneResp = Ma * src_XYZ;
 	vec3 des_coneResp = Ma * des_XYZ;
 
-	mat3 vkMat= transpose(mat3( des_coneResp.x / src_coneResp.x , 0.0f								, 0.0f,
-                                0.0f							, des_coneResp.y / src_coneResp.y	, 0.0 ,
-                                0.0f							, 0.0								, des_coneResp.z / src_coneResp.z ));
+	mat3 vkMat= transpose(mat3( des_coneResp.x / src_coneResp.x , 0.0f                            , 0.0f,
+                              0.0f                            , des_coneResp.y / src_coneResp.y	, 0.0f,
+                              0.0f                            , 0.0f                            , des_coneResp.z / src_coneResp.z ));
 	
 	return MaInv * vkMat * Ma;
 }
 
 mat3 mtx_rgb_to_oklabLMS()
 {
-    mat3 mtx_RGB_XYZ= colorSpace_to_XYZ(COLOR_PRIMARIES, 1.0);
+  mat3 mtx_RGB_XYZ = colorSpace_to_XYZ(COLOR_PRIMARIES, 1.0);
 #if NEED_WHITE_POINT_CAT
-    mat3 CAT= mtx_CAT(OKLAB_WHITE_POINT, COLOR_PRIMARIES.white);
-    mat3 mtx_RGB_OklabLMS= mtx_XYZ_OklabLMS * CAT * mtx_RGB_XYZ;
+  mat3 CAT = mtx_CAT(OKLAB_WHITE_POINT, COLOR_PRIMARIES.white);
+  mat3 mtx_RGB_OklabLMS = mtx_XYZ_OklabLMS * CAT * mtx_RGB_XYZ;
 #else
-    mat3 mtx_RGB_OklabLMS= mtx_XYZ_OklabLMS * mtx_RGB_XYZ;
+  mat3 mtx_RGB_OklabLMS = mtx_XYZ_OklabLMS * mtx_RGB_XYZ;
 #endif
-    return mtx_RGB_OklabLMS;
+  return mtx_RGB_OklabLMS;
 }
           
 mat3 mtx_oklabLMS_to_rgb()
 {
-    mat3 mtx_XYZ_RGB= XYZ_to_colorSpace(COLOR_PRIMARIES, 1.0);
+  mat3 mtx_XYZ_RGB = XYZ_to_colorSpace(COLOR_PRIMARIES, 1.0);
 #if NEED_WHITE_POINT_CAT
-    mat3 CAT= mtx_CAT(COLOR_PRIMARIES.white, OKLAB_WHITE_POINT);
-    mat3 mtx_OklabLMS_RGB= mtx_XYZ_RGB * CAT * mtx_OklabLMS_XYZ;
+  mat3 CAT = mtx_CAT(COLOR_PRIMARIES.white, OKLAB_WHITE_POINT);
+  mat3 mtx_OklabLMS_RGB = mtx_XYZ_RGB * CAT * mtx_OklabLMS_XYZ;
 #else
-    mat3 mtx_OklabLMS_RGB= mtx_XYZ_RGB * mtx_OklabLMS_XYZ;
+  mat3 mtx_OklabLMS_RGB = mtx_XYZ_RGB * mtx_OklabLMS_XYZ;
 #endif
-    return mtx_OklabLMS_RGB;
+  return mtx_OklabLMS_RGB;
 }
 
 vec3 rgb_to_oklab(vec3 c) 
 {
-    mat3 mtx_RGB_OklabLMS= mtx_rgb_to_oklabLMS();
-    
-    float l = mtx_RGB_OklabLMS[0][0] * c.r + mtx_RGB_OklabLMS[1][0] * c.g + mtx_RGB_OklabLMS[2][0] * c.b;
-    float m = mtx_RGB_OklabLMS[0][1] * c.r + mtx_RGB_OklabLMS[1][1] * c.g + mtx_RGB_OklabLMS[2][1] * c.b;
-    float s = mtx_RGB_OklabLMS[0][2] * c.r + mtx_RGB_OklabLMS[1][2] * c.g + mtx_RGB_OklabLMS[2][2] * c.b;
+  mat3 mtx_RGB_OklabLMS = mtx_rgb_to_oklabLMS();
+  
+  float l = mtx_RGB_OklabLMS[0][0] * c.r + mtx_RGB_OklabLMS[1][0] * c.g + mtx_RGB_OklabLMS[2][0] * c.b;
+  float m = mtx_RGB_OklabLMS[0][1] * c.r + mtx_RGB_OklabLMS[1][1] * c.g + mtx_RGB_OklabLMS[2][1] * c.b;
+  float s = mtx_RGB_OklabLMS[0][2] * c.r + mtx_RGB_OklabLMS[1][2] * c.g + mtx_RGB_OklabLMS[2][2] * c.b;
 
-    float l_ = pow(l, 1./3.);
-    float m_ = pow(m, 1./3.);
-    float s_ = pow(s, 1./3.);
+  float l_ = pow(l, 1./3.);
+  float m_ = pow(m, 1./3.);
+  float s_ = pow(s, 1./3.);
 
-    vec3 labResult;
-    labResult.x = 0.2104542553f*l_ + 0.7936177850f*m_ - 0.0040720468f*s_;
-    labResult.y = 1.9779984951f*l_ - 2.4285922050f*m_ + 0.4505937099f*s_;
-    labResult.z = 0.0259040371f*l_ + 0.7827717662f*m_ - 0.8086757660f*s_;
-    return labResult;
+  vec3 labResult;
+  labResult.x = 0.2104542553f*l_ + 0.7936177850f*m_ - 0.0040720468f*s_;
+  labResult.y = 1.9779984951f*l_ - 2.4285922050f*m_ + 0.4505937099f*s_;
+  labResult.z = 0.0259040371f*l_ + 0.7827717662f*m_ - 0.8086757660f*s_;
+  return labResult;
 }
 
 vec3 oklab_to_rgb(vec3 c) 
 {
-    float l_ = c.x + 0.3963377774f * c.y + 0.2158037573f * c.z;
-    float m_ = c.x - 0.1055613458f * c.y - 0.0638541728f * c.z;
-    float s_ = c.x - 0.0894841775f * c.y - 1.2914855480f * c.z;
+  float l_ = c.x + 0.3963377774f * c.y + 0.2158037573f * c.z;
+  float m_ = c.x - 0.1055613458f * c.y - 0.0638541728f * c.z;
+  float s_ = c.x - 0.0894841775f * c.y - 1.2914855480f * c.z;
 
-    float l = l_*l_*l_;
-    float m = m_*m_*m_;
-    float s = s_*s_*s_;
+  float l = l_*l_*l_;
+  float m = m_*m_*m_;
+  float s = s_*s_*s_;
 
-    mat3 mtx_OklabLMS_RGB= mtx_oklabLMS_to_rgb();
-    
-    vec3 rgbResult;
-    rgbResult.r = mtx_OklabLMS_RGB[0][0] *l + mtx_OklabLMS_RGB[1][0] *m + mtx_OklabLMS_RGB[2][0] *s;
-    rgbResult.g = mtx_OklabLMS_RGB[0][1] *l + mtx_OklabLMS_RGB[1][1] *m + mtx_OklabLMS_RGB[2][1] *s;
-    rgbResult.b = mtx_OklabLMS_RGB[0][2] *l + mtx_OklabLMS_RGB[1][2] *m + mtx_OklabLMS_RGB[2][2] *s;
-    
-    return rgbResult;
+  mat3 mtx_OklabLMS_RGB= mtx_oklabLMS_to_rgb();
+  
+  vec3 rgbResult;
+  rgbResult.r = mtx_OklabLMS_RGB[0][0] *l + mtx_OklabLMS_RGB[1][0] *m + mtx_OklabLMS_RGB[2][0] *s;
+  rgbResult.g = mtx_OklabLMS_RGB[0][1] *l + mtx_OklabLMS_RGB[1][1] *m + mtx_OklabLMS_RGB[2][1] *s;
+  rgbResult.b = mtx_OklabLMS_RGB[0][2] *l + mtx_OklabLMS_RGB[1][2] *m + mtx_OklabLMS_RGB[2][2] *s;
+  
+  return rgbResult;
 }
 
 
@@ -202,7 +191,6 @@ float solve_cubic_halley(float x, float b, float c, float d)
 	float df1= 3.0f * x * x + 2.0f * b *x + c;
 	float df2= 6.0f * x  + 2.0f * b;
 	x= x - (f0 * df1)/(df1*df1 - 0.5f * f0*df2);
-    
 	return x;
 }
 
@@ -211,7 +199,7 @@ float solve_cubic_newton(float x, float b, float c, float d)
 {
 	float f0 = x*x*x + b *x*x + c*x +d;
 	float df1= 3.0f * x * x + 2.0f * b *x + c;
-	x= x - (f0/df1);
+	x = x - (f0/df1);
 	return x;
 }
 
@@ -224,8 +212,8 @@ float solve_cubic_numerical(float a, float b, float c, float d)
     // 1 step of Halley + 1 step of Newton may be enough for small gamut like sRGB, AdobeRGB, DCI P3
     // larger gamut need more steps, especially at some blue hue
     float x= 0.4;  // initial guess
-	x= solve_cubic_halley(x, b, c, d);
-    x= solve_cubic_newton(x, b, c, d);
+	  x = solve_cubic_halley(x, b, c, d);
+    x = solve_cubic_newton(x, b, c, d);
     return x;
 }
 
@@ -233,52 +221,52 @@ float solve_cubic_numerical(float a, float b, float c, float d)
 // and return only the minimum positive real root (which is our use case) 
 float solve_cubic(float a, float b, float c, float d)
 {
-    b/=a;
-    c/=a;
-    d/=a;
+  b/=a;
+  c/=a;
+  d/=a;
 
-    float q = (3.0/9.0)*c - ( (1.0/9.0) *b*b);
-    float r = (-27.0/54.0)*d + b*((9.0/54.0)*c - (2.0/54.0)*(b*b));
-    float disc = q*q*q + r*r;
+  float q = (3.0/9.0)*c - ( (1.0/9.0) *b*b);
+  float r = (-27.0/54.0)*d + b*((9.0/54.0)*c - (2.0/54.0)*(b*b));
+  float disc = q*q*q + r*r;
 
-    float term1 = b* (1.0/3.0);
+  float term1 = b* (1.0/3.0);
 
-    float x1_re= 0.0;
-    float x2_re= 0.0;
-    float x3_re= 0.0;
-    float x;
-    if (disc > 0.0)
-    {
-        // one root real, two are complex
-        float s = r + sqrt(disc);
-        s = sign(s) * pow(abs(s), 1.0/3.0);
-        float t = r - sqrt(disc);
-        t = sign(t) * pow(abs(t), 1.0/3.0);
-        x1_re = -term1 + s + t;
-        term1 += (s + t)/2.0;
-        x2_re = -term1;
-        x3_re = -term1;
-        term1 = sqrt(3.0)*(-t + s)/2.0;
-        
-        x= x1_re; // only pick the real root for our use case
-    }
-    else
-    {
-        // The remaining options are all real
-        q= -q;
-        float dum1= q*q*q;
-        dum1= acos( clamp(r/sqrt(dum1) , -1.0, 1.0) );
-        float r13= 2.0 * sqrt(q);
+  float x1_re= 0.0;
+  float x2_re= 0.0;
+  float x3_re= 0.0;
+  float x;
+  if (disc > 0.0)
+  {
+    // one root real, two are complex
+    float s = r + sqrt(disc);
+    s = sign(s) * pow(abs(s), 1.0/3.0);
+    float t = r - sqrt(disc);
+    t = sign(t) * pow(abs(t), 1.0/3.0);
+    x1_re = -term1 + s + t;
+    term1 += (s + t)/2.0;
+    x2_re = -term1;
+    x3_re = -term1;
+    term1 = sqrt(3.0)*(-t + s)/2.0;
+    
+    x= x1_re; // only pick the real root for our use case
+  }
+  else
+  {
+    // The remaining options are all real
+    q= -q;
+    float dum1= q*q*q;
+    dum1= acos( clamp(r/sqrt(dum1) , -1.0, 1.0) );
+    float r13= 2.0 * sqrt(q);
 
-        x1_re= -term1 + r13 * cos(dum1 * (1.0/3.0));
-        x2_re= -term1 + r13 * cos(dum1 * (1.0/3.0) + (2.0*PI/3.0));
-        x3_re= -term1 + r13 * cos(dum1 * (1.0/3.0) + (4.0*PI/3.0));
+    x1_re= -term1 + r13 * cos(dum1 * (1.0/3.0));
+    x2_re= -term1 + r13 * cos(dum1 * (1.0/3.0) + (2.0*M_PI/3.0));
+    x3_re= -term1 + r13 * cos(dum1 * (1.0/3.0) + (4.0*M_PI/3.0));
 
-        x= 1.0f/max(1.0f/x1_re, max(1.0f/x2_re, 1.0f/x3_re)); // pick the minimum non negative for our use case
-    }
+    x= 1.0f/max(1.0f/x1_re, max(1.0f/x2_re, 1.0f/x3_re)); // pick the minimum non negative for our use case
+  }
 
-    // perform Halley's method to fix floating point precision error at some hue (e.g. 232.59 degree)    
-    x= solve_cubic_halley(x, b, c, d);
+  // perform Halley's method to fix floating point precision error at some hue (e.g. 232.59 degree)    
+  x= solve_cubic_halley(x, b, c, d);
 	return x;
 }
 
@@ -288,60 +276,60 @@ float solve_cubic(float a, float b, float c, float d)
 // a and b must be normalized so a^2 + b^2 == 1
 float compute_max_saturation(float a, float b, vec2 r_dir, vec2 g_dir, vec2 b_dir)
 {
-    // solve the max saturation value analytically
-    float A= 0.3963377774;
-    float B= 0.2158037573;
-    float C= -0.1055613458;
-    float D= -0.0638541728;
-    float E= -0.0894841775;
-    float F= -1.2914855480;
+  // solve the max saturation value analytically
+  float A= 0.3963377774;
+  float B= 0.2158037573;
+  float C= -0.1055613458;
+  float D= -0.0638541728;
+  float E= -0.0894841775;
+  float F= -1.2914855480;
 
-    vec2 ab= vec2(a, b);
-    
-    float Aa_Bb  = A * a + B * b;
-    float Aa_Bb_2= Aa_Bb * Aa_Bb;
-    float Aa_Bb_3= Aa_Bb * Aa_Bb_2;
+  vec2 ab= vec2(a, b);
+  
+  float Aa_Bb  = A * a + B * b;
+  float Aa_Bb_2= Aa_Bb * Aa_Bb;
+  float Aa_Bb_3= Aa_Bb * Aa_Bb_2;
 
-    float Ca_Db= C * a + D * b;
-    float Ca_Db_2= Ca_Db * Ca_Db;
-    float Ca_Db_3= Ca_Db * Ca_Db_2;
+  float Ca_Db= C * a + D * b;
+  float Ca_Db_2= Ca_Db * Ca_Db;
+  float Ca_Db_3= Ca_Db * Ca_Db_2;
 
-    float Ea_Fb= E * a + F * b;
-    float Ea_Fb_2= Ea_Fb * Ea_Fb;
-    float Ea_Fb_3= Ea_Fb * Ea_Fb_2;
-    
-    float kl, km, ks;
-    mat3 mtx_OklabLMS_RGB= mtx_oklabLMS_to_rgb();
-    if (dot(r_dir, ab)> 1.)
-    {
-        // Red component
-        kl= mtx_OklabLMS_RGB[0][0];
-        km= mtx_OklabLMS_RGB[1][0];
-        ks= mtx_OklabLMS_RGB[2][0];
-    }
-    else if (dot(g_dir, ab) > 1.)
-    {
-        // Green component
-        kl= mtx_OklabLMS_RGB[0][1];
-        km= mtx_OklabLMS_RGB[1][1];
-        ks= mtx_OklabLMS_RGB[2][1];
-    }
-    else
-    {
-        // Blue component
-        kl= mtx_OklabLMS_RGB[0][2];
-        km= mtx_OklabLMS_RGB[1][2];
-        ks= mtx_OklabLMS_RGB[2][2];
-    }
+  float Ea_Fb= E * a + F * b;
+  float Ea_Fb_2= Ea_Fb * Ea_Fb;
+  float Ea_Fb_3= Ea_Fb * Ea_Fb_2;
+  
+  float kl, km, ks;
+  mat3 mtx_OklabLMS_RGB = mtx_oklabLMS_to_rgb();
+  if (dot(r_dir, ab)> 1.)
+  {
+    // Red component
+    kl = mtx_OklabLMS_RGB[0][0];
+    km = mtx_OklabLMS_RGB[1][0];
+    ks = mtx_OklabLMS_RGB[2][0];
+  }
+  else if (dot(g_dir, ab) > 1.)
+  {
+    // Green component
+    kl = mtx_OklabLMS_RGB[0][1];
+    km = mtx_OklabLMS_RGB[1][1];
+    ks = mtx_OklabLMS_RGB[2][1];
+  }
+  else
+  {
+    // Blue component
+    kl = mtx_OklabLMS_RGB[0][2];
+    km = mtx_OklabLMS_RGB[1][2];
+    ks = mtx_OklabLMS_RGB[2][2];
+  }
 
-    float coef3=        kl * Aa_Bb_3 + km * Ca_Db_3  + ks * Ea_Fb_3 ;
-    float coef2= 3.0 * (kl * Aa_Bb_2 + km * Ca_Db_2  + ks * Ea_Fb_2);
-    float coef1= 3.0 * (kl * Aa_Bb   + km * Ca_Db    + ks * Ea_Fb  );
-    float coef0=        kl           + km            + ks;
-    float S= solve_cubic(coef3, coef2, coef1, coef0);
-    //float S= solve_cubic_numerical(coef3, coef2, coef1, coef0);
-    
-    return S;
+  float coef3 =        kl * Aa_Bb_3 + km * Ca_Db_3  + ks * Ea_Fb_3 ;
+  float coef2 = 3.0 * (kl * Aa_Bb_2 + km * Ca_Db_2  + ks * Ea_Fb_2);
+  float coef1 = 3.0 * (kl * Aa_Bb   + km * Ca_Db    + ks * Ea_Fb  );
+  float coef0 =        kl           + km            + ks;
+  float S = solve_cubic(coef3, coef2, coef1, coef0);
+  //float S = solve_cubic_numerical(coef3, coef2, coef1, coef0);
+  
+  return S;
 }
 
 
@@ -391,9 +379,9 @@ LC find_cusp(float a, float b)
 // a and b must be normalized so a^2 + b^2 == 1
 float find_gamut_intersection(float a, float b, float L1, float C1, float L0, vec2 r_dir, vec2 g_dir, vec2 b_dir)
 {   
-    float cosh= a;
-    float sinh= b; // save the value here as b is redefined when using Halley's method...
-    vec2 ab= vec2(a, b);
+  float cosh= a;
+  float sinh= b; // save the value here as b is redefined when using Halley's method...
+  vec2 ab= vec2(a, b);
 
 	// Find the cusp of the gamut triangle
 	LC cusp = find_cusp(a, b, r_dir, g_dir, b_dir);
@@ -448,7 +436,7 @@ float find_gamut_intersection(float a, float b, float L1, float C1, float L0, ve
 				float mdt2 = 6. * m_dt * m_dt * m_;
 				float sdt2 = 6. * s_dt * s_dt * s_;
 
-                mat3 mtx_OklabLMS_RGB= mtx_oklabLMS_to_rgb();
+        mat3 mtx_OklabLMS_RGB = mtx_oklabLMS_to_rgb();
 
 				float r = mtx_OklabLMS_RGB[0][0] * l    + mtx_OklabLMS_RGB[1][0] * m    + mtx_OklabLMS_RGB[2][0] * s - 1.;
 				float r1= mtx_OklabLMS_RGB[0][0] * ldt  + mtx_OklabLMS_RGB[1][0] * mdt  + mtx_OklabLMS_RGB[2][0] * sdt;
@@ -471,34 +459,33 @@ float find_gamut_intersection(float a, float b, float L1, float C1, float L0, ve
 				float u_b = b1 / (b1 * b1 - 0.5f * b * b2);
 				float t_b = -b * u_b;
 
-                float FLT_MAX= 3.402823466e+38;
 #if 0 // check all 3 clipping lines
 				t_r = u_r >= 0.f ? t_r : FLT_MAX;
 				t_g = u_g >= 0.f ? t_g : FLT_MAX;
 				t_b = u_b >= 0.f ? t_b : FLT_MAX;
 				t += min(t_r, min(t_g, t_b));
 #else // only check 2 upper clipping lines is enough
-                if (dot(r_dir, ab)> 1.)
-                {
-                    // Red component
-                    t_g = u_g >= 0.f ? t_g : FLT_MAX;
-                    t_b = u_b >= 0.f ? t_b : FLT_MAX;
-                    t += min(t_g, t_b);
-                }
-                else if (dot(g_dir, ab) > 1.)
-                {
-                    // Green component
-                    t_r = u_r >= 0.f ? t_r : FLT_MAX;
-                    t_b = u_b >= 0.f ? t_b : FLT_MAX;
-                    t += min(t_r, t_b);
-                }
-                else
-                {
-                    // Blue component
-                    t_r = u_r >= 0.f ? t_r : FLT_MAX;
-                    t_g = u_g >= 0.f ? t_g : FLT_MAX;
-                    t += min(t_r, t_g);
-                }
+        if (dot(r_dir, ab)> 1.)
+        {
+          // Red component
+          t_g = u_g >= 0.f ? t_g : FLT_MAX;
+          t_b = u_b >= 0.f ? t_b : FLT_MAX;
+          t += min(t_g, t_b);
+        }
+        else if (dot(g_dir, ab) > 1.)
+        {
+          // Green component
+          t_r = u_r >= 0.f ? t_r : FLT_MAX;
+          t_b = u_b >= 0.f ? t_b : FLT_MAX;
+          t += min(t_r, t_b);
+        }
+        else
+        {
+          // Blue component
+          t_r = u_r >= 0.f ? t_r : FLT_MAX;
+          t_g = u_g >= 0.f ? t_g : FLT_MAX;
+          t += min(t_r, t_g);
+        }
 #endif
 			}
 		}

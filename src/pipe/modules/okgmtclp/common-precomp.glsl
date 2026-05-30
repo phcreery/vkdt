@@ -1,47 +1,33 @@
 // common functions with precomputed coefficients for rec2020 gamut
 
 const float FLT_MAX = 3.402823466e+38;
-#define RGB vec3
-#define Lab vec3
-#define LC vec2
 
 float fixedpow(float a, float x)
 {
-    return pow(abs(a), x) * sign(a);
+  return pow(abs(a), x) * sign(a);
 }
 
 float cbrt(float a)
 {
-    return fixedpow(a, 0.3333333333);
+  return fixedpow(a, 0.3333333333);
 }
 
-// h in radian
-Lab oklab_LCh_to_Lab(float L, float C, float h) 
+// h in radians
+vec3 oklab_LCh_to_Lab(float L, float C, float h) 
 {
-  Lab lab;
+  vec3 lab;
   lab.x = L;
   lab.y = C * cos(h);
   lab.z = C * sin(h);
   return lab;
 }
 
-// h in radian
-Lab oklab_Lab_to_LCh(float L, float a, float b) 
+// h in radians
+vec3 oklab_Lab_to_LCh(float L, float a, float b) 
 {
   float C = sqrt(a * a + b * b);
   float h = atan(b, a);
   return vec3(L, C, h);
-}
-
-
-vec3 rgb_to_oklab(vec3 c) 
-{
-  return rec2020_to_oklab(c);
-}
-
-vec3 oklab_to_rgb(vec3 c) 
-{
-  return oklab_to_rec2020(c);
 }
 
 
@@ -69,19 +55,19 @@ float compute_max_saturation(float a, float b)
   // else if (1.81444104f * a - 1.19445276f * b > 1) // srgb
   else if (2.01082106f * a - 2.03699421f * b > 1) // rec2020
   {
-      // Green component
-      // k0 = +0.73956515f; k1 = -0.45954404f; k2 = +0.08285427f; k3 = +0.12541070f; k4 = +0.14503204f;
-      k0 = +0.80978699f; k1 = -0.42456418f; k2 = +0.08285427f; k3 = +0.14414336f; k4 = +0.1443485f;
-      // wl = -1.2684380046f; wm = +2.6097574011f; ws = -0.3413193965f; // srgb
-      wl = -0.88483245f; wm = +2.16317272f; ws = -0.27836159f; // rec2020
+    // Green component
+    // k0 = +0.73956515f; k1 = -0.45954404f; k2 = +0.08285427f; k3 = +0.12541070f; k4 = +0.14503204f;
+    k0 = +0.80978699f; k1 = -0.42456418f; k2 = +0.08285427f; k3 = +0.14414336f; k4 = +0.1443485f;
+    // wl = -1.2684380046f; wm = +2.6097574011f; ws = -0.3413193965f; // srgb
+    wl = -0.88483245f; wm = +2.16317272f; ws = -0.27836159f; // rec2020
   }
   else
   {
-      // Blue component
-      // k0 = +1.35733652f; k1 = -0.00915799f; k2 = -1.15130210f; k3 = -0.50559606f; k4 = +0.00692167f;
-      k0 = +1.41503345f; k1 = -0.02049584f; k2 = -1.15438812f; k3 = -0.49243865f; k4 = +0.0081505f;
-      // wl = -0.0041960863f; wm = -0.7034186147f; ws = +1.7076147010f; // srgb
-      wl = -0.04857906f; wm = -0.45449091f; ws = +1.50235629f; // rec2020
+    // Blue component
+    // k0 = +1.35733652f; k1 = -0.00915799f; k2 = -1.15130210f; k3 = -0.50559606f; k4 = +0.00692167f;
+    k0 = +1.41503345f; k1 = -0.02049584f; k2 = -1.15438812f; k3 = -0.49243865f; k4 = +0.0081505f;
+    // wl = -0.0041960863f; wm = -0.7034186147f; ws = +1.7076147010f; // srgb
+    wl = -0.04857906f; wm = -0.45449091f; ws = +1.50235629f; // rec2020
   }
 
   // Approximate max saturation using a polynomial:
@@ -125,20 +111,20 @@ float compute_max_saturation(float a, float b)
 }
 
 
-// // finds L_cusp and C_cusp for a given hue
-// // a and b must be normalized so a^2 + b^2 == 1
-LC find_cusp(float a, float b)
+// finds L_cusp and C_cusp for a given hue
+// a and b must be normalized so a^2 + b^2 == 1
+vec2 find_cusp(float a, float b)
 {
 	// First, find the maximum saturation (saturation S = C/L)
 	float S_cusp = compute_max_saturation(a, b);
 
 	// Convert to linear sRGB to find the first point where at least one of r,g or b >= 1:
-  Lab lab = { 1, S_cusp * a, S_cusp * b };
-  RGB rgb_at_max = oklab_to_rec2020(lab);
+  vec3 lab = vec3(1, S_cusp * a, S_cusp * b);
+  vec3 rgb_at_max = oklab_to_rec2020(lab);
   float L_cusp = cbrt(1.f / max(max(rgb_at_max.r, rgb_at_max.g), rgb_at_max.b));
   float C_cusp = L_cusp * S_cusp;
 
-  return LC(L_cusp, C_cusp);
+  return vec2(L_cusp, C_cusp);
 }
 
 
@@ -149,16 +135,14 @@ LC find_cusp(float a, float b)
 float find_gamut_intersection(float a, float b, float L1, float C1, float L0)
 {
 	// Find the cusp of the gamut triangle
-	LC cusp = find_cusp(a, b);
+	vec2 cusp = find_cusp(a, b);
 
 	// Find the intersection for upper and lower half seprately
 	float t;
 	if (((L1 - L0) * cusp.y - (cusp.x - L0) * C1) <= 0.f)
-	// if (((L1 - L0) * cusp.C - (cusp.L - L0) * C1) <= 0.f)
 	{
 		// Lower half
 		t = cusp.y * L0 / (C1 * cusp.x + cusp.y * (L0 - L1));
-		// t = cusp.C * L0 / (C1 * cusp.L + cusp.C * (L0 - L1));
 	}
 	else
 	{
@@ -166,7 +150,6 @@ float find_gamut_intersection(float a, float b, float L1, float C1, float L0)
 
 		// First intersect with triangle
 		t = cusp.y * (L0 - 1.f) / (C1 * (cusp.x - 1.f) + cusp.y * (L0 - L1));
-		// t = cusp.C * (L0 - 1.f) / (C1 * (cusp.L - 1.f) + cusp.C * (L0 - L1));
 
 		// Then one step Halley's method
 		{
@@ -205,10 +188,6 @@ float find_gamut_intersection(float a, float b, float L1, float C1, float L0)
 				float mdt2 = 6 * m_dt * m_dt * m_;
 				float sdt2 = 6 * s_dt * s_dt * s_;
 
-				// sRGB
-				// float r = 4.0767416621f * l - 3.3077115913f * m + 0.2309699292f * s - 1;
-				// float r1 = 4.0767416621f * ldt - 3.3077115913f * mdt + 0.2309699292f * sdt;
-				// float r2 = 4.0767416621f * ldt2 - 3.3077115913f * mdt2 + 0.2309699292f * sdt2;
 				// rec2020
 				float r = 2.14014041f * l - 1.24635595f * m + 0.10643173f * s - 1;
 				float r1 = 2.14014041f * ldt - 1.24635595f * mdt + 0.10643173f * sdt;
@@ -217,10 +196,6 @@ float find_gamut_intersection(float a, float b, float L1, float C1, float L0)
 				float u_r = r1 / (r1 * r1 - 0.5f * r * r2);
 				float t_r = -r * u_r;
 
-				// sRGB
-				// float g = -1.2684380046f * l + 2.6097574011f * m - 0.3413193965f * s - 1;
-				// float g1 = -1.2684380046f * ldt + 2.6097574011f * mdt - 0.3413193965f * sdt;
-				// float g2 = -1.2684380046f * ldt2 + 2.6097574011f * mdt2 - 0.3413193965f * sdt2;
 				// rec2020
 				float g = -0.88483245f * l + 2.16317272f * m - 0.27836159f * s - 1;
 				float g1 = -0.88483245f * ldt + 2.16317272f * mdt - 0.27836159f * sdt;
@@ -229,10 +204,6 @@ float find_gamut_intersection(float a, float b, float L1, float C1, float L0)
 				float u_g = g1 / (g1 * g1 - 0.5f * g * g2);
 				float t_g = -g * u_g;
 
-				// sRGB
-				// float b = -0.0041960863f * l - 0.7034186147f * m + 1.7076147010f * s - 1;
-				// float b1 = -0.0041960863f * ldt - 0.7034186147f * mdt + 1.7076147010f * sdt;
-				// float b2 = -0.0041960863f * ldt2 - 0.7034186147f * mdt2 + 1.7076147010f * sdt2;
 				// rec2020
 				float b = -0.04857906f * l - 0.45449091f * m + 1.50235629f * s - 1;
 				float b1 = -0.04857906f * ldt - 0.45449091f * mdt + 1.50235629f * sdt;

@@ -27,13 +27,11 @@ main()
   if(any(greaterThanEqual(ipos, imageSize(img_out)))) return;
   vec3 rgb = texelFetch(img_in, ipos, 0).rgb;
 
-  RGB rgb_gamut;
+  vec3 rgb_gamut;
 
   if (params.mode == 0) {
     rgb_gamut = gamut_clip_preserve_chroma(rgb);
-  }
-  else 
-  {
+  } else {
     if (params.projection == 0) { // single point
       if (params.L0 == 0)           // L0 = 0.5
         rgb_gamut = gamut_clip_project_to_L0_0_5(rgb);
@@ -46,7 +44,6 @@ main()
         rgb_gamut = gamut_clip_adaptive_L0_L_cusp(rgb, params.alpha);
     }
   }
-
 
   imageStore(img_out, ipos, vec4(rgb_gamut, 1));
 }

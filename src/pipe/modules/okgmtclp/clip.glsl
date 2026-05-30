@@ -25,7 +25,7 @@
 // #include "common.glsl"
 #include "common-precomp.glsl"
 
-LC gamut_clip_preserve_chroma(float a_, float b_, float L1, float C1)
+vec2 gamut_clip_preserve_chroma(float a_, float b_, float L1, float C1)
 {
   float L0 = clamp(L1, 0, 1);
 
@@ -33,9 +33,10 @@ LC gamut_clip_preserve_chroma(float a_, float b_, float L1, float C1)
   float L_clipped = L0 * (1 - t) + t * L1;
   float C_clipped = t * C1;
 
-  return LC(L_clipped, C_clipped);
+  return vec2(L_clipped, C_clipped);
 }
-Lab gamut_clip_preserve_chroma_lab(Lab lab)
+
+vec3 gamut_clip_preserve_chroma_lab(vec3 lab)
 {
 
 	float L = lab.x;
@@ -44,24 +45,25 @@ Lab gamut_clip_preserve_chroma_lab(Lab lab)
 	float a_ = lab.y / C;
 	float b_ = lab.z / C;
 
-  LC lc_clipped = gamut_clip_preserve_chroma(a_, b_, L, C);
+  vec2 lc_clipped = gamut_clip_preserve_chroma(a_, b_, L, C);
   float L_clipped = lc_clipped.x;
   float C_clipped = lc_clipped.y;
 
-  return Lab(L_clipped, C_clipped * a_, C_clipped * b_);
+  return vec3(L_clipped, C_clipped * a_, C_clipped * b_);
 }
-RGB gamut_clip_preserve_chroma(RGB rgb)
+
+vec3 gamut_clip_preserve_chroma(vec3 rgb)
 {
 	if (rgb.r < 1 && rgb.g < 1 && rgb.b < 1 && rgb.r > 0 && rgb.g > 0 && rgb.b > 0)
 		return rgb;
 
-	Lab lab = rec2020_to_oklab(rgb);
-  Lab lab_gamut = gamut_clip_preserve_chroma_lab(lab);
+	vec3 lab = rec2020_to_oklab(rgb);
+  vec3 lab_gamut = gamut_clip_preserve_chroma_lab(lab);
   return oklab_to_rec2020(lab_gamut);
 }
 
 
-LC gamut_clip_project_to_L0_0_5(float a_, float b_, float L1, float C1)
+vec2 gamut_clip_project_to_L0_0_5(float a_, float b_, float L1, float C1)
 {
   float L0 = 0.5;
 
@@ -69,9 +71,10 @@ LC gamut_clip_project_to_L0_0_5(float a_, float b_, float L1, float C1)
   float L_clipped = L0 * (1 - t) + t * L1;
   float C_clipped = t * C1;
 
-  return LC(L_clipped, C_clipped);
+  return vec2(L_clipped, C_clipped);
 }
-Lab gamut_clip_project_to_L0_0_5_lab(Lab lab)
+
+vec3 gamut_clip_project_to_L0_0_5_lab(vec3 lab)
 {
 
 	float L = lab.x;
@@ -80,26 +83,27 @@ Lab gamut_clip_project_to_L0_0_5_lab(Lab lab)
 	float a_ = lab.y / C;  // aka cos(h)
 	float b_ = lab.z / C;  // aka sin(h)
 
-	LC lc_clipped = gamut_clip_project_to_L0_0_5(a_, b_, L, C);
+	vec2 lc_clipped = gamut_clip_project_to_L0_0_5(a_, b_, L, C);
   float L_clipped = lc_clipped.x;
   float C_clipped = lc_clipped.y;
 
-  return Lab(L_clipped, C_clipped * a_, C_clipped * b_);
+  return vec3(L_clipped, C_clipped * a_, C_clipped * b_);
 }
-RGB gamut_clip_project_to_L0_0_5(RGB rgb)
+
+vec3 gamut_clip_project_to_L0_0_5(vec3 rgb)
 {
 	if (rgb.r < 1 && rgb.g < 1 && rgb.b < 1 && rgb.r > 0 && rgb.g > 0 && rgb.b > 0)
 		return rgb;
 
-	Lab lab = rec2020_to_oklab(rgb);
-  Lab lab_gamut = gamut_clip_project_to_L0_0_5_lab(lab);
+	vec3 lab = rec2020_to_oklab(rgb);
+  vec3 lab_gamut = gamut_clip_project_to_L0_0_5_lab(lab);
   return oklab_to_rec2020(lab_gamut);
 }
 
-LC gamut_clip_project_to_L_cusp(float a_, float b_, float L1, float C1)
+vec2 gamut_clip_project_to_L_cusp(float a_, float b_, float L1, float C1)
 {
   // The cusp is computed here and in find_gamut_intersection, an optimized solution would only compute it once.
-  LC cusp = find_cusp(a_, b_);
+  vec2 cusp = find_cusp(a_, b_);
 
   float L0 = cusp.x;
 
@@ -107,9 +111,10 @@ LC gamut_clip_project_to_L_cusp(float a_, float b_, float L1, float C1)
   float L_clipped = L0 * (1 - t) + t * L1;
   float C_clipped = t * C1;
 
-  return LC(L_clipped, C_clipped);
+  return vec2(L_clipped, C_clipped);
 }
-Lab gamut_clip_project_to_L_cusp_lab(Lab lab)
+
+vec3 gamut_clip_project_to_L_cusp_lab(vec3 lab)
 {
 	float L = lab.x;
 	float eps = 0.00001f;
@@ -117,23 +122,23 @@ Lab gamut_clip_project_to_L_cusp_lab(Lab lab)
 	float a_ = lab.y / C;
 	float b_ = lab.z / C;
 
-	LC lc_clipped = gamut_clip_project_to_L_cusp(a_, b_, L, C);
+	vec2 lc_clipped = gamut_clip_project_to_L_cusp(a_, b_, L, C);
   float L_clipped = lc_clipped.x;
   float C_clipped = lc_clipped.y;
 
-  return Lab(L_clipped, C_clipped * a_, C_clipped * b_);
+  return vec3(L_clipped, C_clipped * a_, C_clipped * b_);
 }
-RGB gamut_clip_project_to_L_cusp(RGB rgb)
+vec3 gamut_clip_project_to_L_cusp(vec3 rgb)
 {
 	if (rgb.r < 1 && rgb.g < 1 && rgb.b < 1 && rgb.r > 0 && rgb.g > 0 && rgb.b > 0)
 		return rgb;
 
-	Lab lab = rec2020_to_oklab(rgb);
-  Lab lab_gamut = gamut_clip_project_to_L_cusp_lab(lab);
+	vec3 lab = rec2020_to_oklab(rgb);
+  vec3 lab_gamut = gamut_clip_project_to_L_cusp_lab(lab);
   return oklab_to_rec2020(lab_gamut);
 }
 
-LC gamut_clip_adaptive_L0_0_5(float a_, float b_, float L1, float C1, float alpha)
+vec2 gamut_clip_adaptive_L0_0_5(float a_, float b_, float L1, float C1, float alpha)
 {
   float Ld = L1 - 0.5f;
   float e1 = 0.5f + abs(Ld) + alpha * C1;
@@ -142,9 +147,10 @@ LC gamut_clip_adaptive_L0_0_5(float a_, float b_, float L1, float C1, float alph
   float t = find_gamut_intersection(a_, b_, L1, C1, L0);
   float L_clipped = L0 * (1.f - t) + t * L1;
   float C_clipped = t * C1;
-  return LC(L_clipped, C_clipped);
+  return vec2(L_clipped, C_clipped);
 }
-Lab gamut_clip_adaptive_L0_0_5_lab(Lab lab, float alpha)
+
+vec3 gamut_clip_adaptive_L0_0_5_lab(vec3 lab, float alpha)
 {
 	float L = lab.x;
 	float eps = 0.00001f;
@@ -152,25 +158,26 @@ Lab gamut_clip_adaptive_L0_0_5_lab(Lab lab, float alpha)
 	float a_ = lab.y / C;
 	float b_ = lab.z / C;
 
-	LC lc_clipped = gamut_clip_adaptive_L0_0_5(a_, b_, L, C, alpha);
+	vec2 lc_clipped = gamut_clip_adaptive_L0_0_5(a_, b_, L, C, alpha);
   float L_clipped = lc_clipped.x;
   float C_clipped = lc_clipped.y;
-  return Lab(L_clipped, C_clipped * a_, C_clipped * b_);
+  return vec3(L_clipped, C_clipped * a_, C_clipped * b_);
 }
-RGB gamut_clip_adaptive_L0_0_5(RGB rgb, float alpha)
+
+vec3 gamut_clip_adaptive_L0_0_5(vec3 rgb, float alpha)
 {
 	if (rgb.r < 1 && rgb.g < 1 && rgb.b < 1 && rgb.r > 0 && rgb.g > 0 && rgb.b > 0)
 		return rgb;
 
-	Lab lab = rec2020_to_oklab(rgb);
-  Lab lab_gamut = gamut_clip_adaptive_L0_0_5_lab(lab, alpha);
+	vec3 lab = rec2020_to_oklab(rgb);
+  vec3 lab_gamut = gamut_clip_adaptive_L0_0_5_lab(lab, alpha);
   return oklab_to_rec2020(lab_gamut);
 }
 
-LC gamut_clip_adaptive_L0_L_cusp(float a_, float b_, float L1, float C1, float alpha)
+vec2 gamut_clip_adaptive_L0_L_cusp(float a_, float b_, float L1, float C1, float alpha)
 {
   // The cusp is computed here and in find_gamut_intersection, an optimized solution would only compute it once.
-  LC cusp = find_cusp(a_, b_);
+  vec2 cusp = find_cusp(a_, b_);
 
   float Ld = L1 - cusp.x;
   float k = 2.f * (Ld > 0 ? 1.f - cusp.x : cusp.x);
@@ -182,9 +189,10 @@ LC gamut_clip_adaptive_L0_L_cusp(float a_, float b_, float L1, float C1, float a
   float L_clipped = L0 * (1.f - t) + t * L1;
   float C_clipped = t * C1;
 
-  return LC(L_clipped, C_clipped);
+  return vec2(L_clipped, C_clipped);
 }
-Lab gamut_clip_adaptive_L0_L_cusp_lab(Lab lab, float alpha)
+
+vec3 gamut_clip_adaptive_L0_L_cusp_lab(vec3 lab, float alpha)
 {
 	float L = lab.x;
 	float eps = 0.00001f;
@@ -192,18 +200,19 @@ Lab gamut_clip_adaptive_L0_L_cusp_lab(Lab lab, float alpha)
 	float a_ = lab.y / C;
 	float b_ = lab.z / C;
 
-	LC lc_clipped = gamut_clip_adaptive_L0_L_cusp(a_, b_, L, C, alpha);
+	vec2 lc_clipped = gamut_clip_adaptive_L0_L_cusp(a_, b_, L, C, alpha);
   float L_clipped = lc_clipped.x;
   float C_clipped = lc_clipped.y;
 
-  return Lab(L_clipped, C_clipped * a_, C_clipped * b_);
+  return vec3(L_clipped, C_clipped * a_, C_clipped * b_);
 }
-RGB gamut_clip_adaptive_L0_L_cusp(RGB rgb, float alpha)
+
+vec3 gamut_clip_adaptive_L0_L_cusp(vec3 rgb, float alpha)
 {
 	if (rgb.r < 1 && rgb.g < 1 && rgb.b < 1 && rgb.r > 0 && rgb.g > 0 && rgb.b > 0)
 		return rgb;
 
-	Lab lab = rec2020_to_oklab(rgb);
-   Lab lab_gamut = gamut_clip_adaptive_L0_L_cusp_lab(lab, alpha);
-   return oklab_to_rec2020(lab_gamut);
+	vec3 lab = rec2020_to_oklab(rgb);
+  vec3 lab_gamut = gamut_clip_adaptive_L0_L_cusp_lab(lab, alpha);
+  return oklab_to_rec2020(lab_gamut);
 }

@@ -8,7 +8,7 @@ input(
     dt_module_t             *mod,
     dt_module_input_event_t *p)
 { // mouse events on our dspy curve output
-  float *l = (float *)dt_module_param_float(mod,dt_module_get_param(mod->so, dt_token("dspyl")));
+  float *l = (float *)dt_module_param_float(mod, dt_module_get_param(mod->so, dt_token("dspyl")));
   float *c = (float *)dt_module_param_float(mod, dt_module_get_param(mod->so, dt_token("dspyc")));
 
   static bool active = false;
@@ -36,9 +36,6 @@ input(
       *l = CLAMP(p->y * (l_max - l_min) + l_min, 0.0f, 1.0f);
       *c = CLAMP(p->x * (c_max - c_min) + c_min, 0.0f, 1.0f);
       return s_graph_run_record_cmd_buf;
-    }
-    else
-    {
     }
   }
   return 0;
@@ -72,7 +69,7 @@ void create_nodes(
     module->connector[3].roi.wd, module->connector[3].roi.ht, 1, sizeof(pc), pc, 3,
     "input",  "read",  "rgba", "f16", dt_no_roi,
     "dspy",   "write", "rgba", "f16", &module->connector[3].roi,
-    "picked",  "read",  "*",    have_pick ? dt_token_str(module->connector[2].format) : "f16", dt_no_roi);
+    "picked", "read",  "*",    have_pick ? dt_token_str(module->connector[2].format) : "f16", dt_no_roi);
   dt_connector_copy(graph, module, 0, id_dspy, 0);
   dt_connector_copy(graph, module, 3, id_dspy, 1);
   if(have_pick)  dt_connector_copy(graph, module, 2, id_dspy, 2);
