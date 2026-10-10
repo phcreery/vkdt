@@ -346,11 +346,7 @@ record_command_buffer(dt_graph_t *graph, dt_node_t *node, int runflag)
 
   // combine all descriptor sets:
   VkDescriptorSet desc_sets[] = {
-    // fix for #302: node->uniform_dset[f] is unusable for f != 0 - binding it yields garbage
-    // module parameters, so every second dispatch (double_buffer == 1) computes from junk and
-    // renders a constant image (visible as the darkroom flickering blank/flat while dragging).
-    // the uniform buffer still carries one slice per frame and the upload writes the current one.
-    node->uniform_dset[0],
+    node->uniform_dset[f],
     node->dset[f],
     graph->rt.dset[f],
   };
