@@ -1,3 +1,4 @@
 input:read:*:*
-input2:read:*:*
 output:write:&input:*
+alignsrc:read:*:*
+aligndst:read:*:*

@@ -25,8 +25,9 @@ module:i-pfm:01:0:390
 module:i-pfm:02:0:590
 module:algnsurf:01:450:390.6
 module:o-pfm:main:650:390.6
-connect:i-pfm:01:output:algnsurf:01:input
-connect:i-pfm:02:output:algnsurf:01:input2
+connect:i-pfm:01:output:algnsurf:01:aligndst
+connect:i-pfm:02:output:algnsurf:01:alignsrc
+connect:i-pfm:02:output:algnsurf:01:input
 connect:algnsurf:01:output:o-pfm:main:input
 param:i-pfm:01:filename:{ref}
 param:i-pfm:01:startid:0

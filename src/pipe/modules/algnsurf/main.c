@@ -1,7 +1,8 @@
 /*
  * Image alignment module.
- * This module aligns a target image to a reference image.
- * It detects SURF features on the GPU.
+ * This module aligns an image to a reference image.
+ * It detects SURF features in two feature images on the GPU.
+ * The feature images are separate from the image that the module warps.
  * The detector is a port of gpusurf by Paul Furgale and Chi Hay Tong.
  * It matches the features, and fits an affine matrix or a homography with RANSAC.
  * It applies the transformation to the target image in a compute shader.
@@ -19,6 +20,12 @@
 #define DESC_DIM       64
 #define FEAT_STRIDE    (KP_STRIDE + DESC_DIM)
 #define MAX_FEAT       1024
+
+// Connectors of the module.
+#define C_INPUT  0 // the image that the module warps
+#define C_OUTPUT 1 // the warped image
+#define C_SRC    2 // the image that the module aligns. The features come from this image.
+#define C_DST    3 // the reference image. The features come from this image.
 
 // The number of threads for a one dimensional shader with 'ls' threads in each work group.
 #define WG(n, ls) ((((n) + (ls) - 1) / (ls)) * DT_LOCAL_SIZE_X)
@@ -41,6 +48,13 @@ typedef struct geo_t
   int   offset[4];              // start of each octave in the hessian buffer
   int   dim[4];                 // integral image width, height, reduction factor
 } geo_t;
+
+// Push constants of the warp. The layout must match push_t in align.comp.
+typedef struct align_pc_t
+{
+  int dst[2]; // size of the reference image
+  int src[2]; // size of the image that the module aligns
+} align_pc_t;
 
 // Push constants of the solver. The layout must match push_t in solve.comp.
 typedef struct solve_pc_t
@@ -121,7 +135,7 @@ modify_roi_out(
     dt_graph_t  *graph,
     dt_module_t *module)
 {
-  module->connector[2].roi = module->connector[0].roi;
+  module->connector[C_OUTPUT].roi = module->connector[C_INPUT].roi;
 }
 
 dt_graph_run_t
@@ -167,7 +181,7 @@ static int
 add_surf_nodes(
     dt_graph_t  *graph,
     dt_module_t *module,
-    const int    cid,      // input connector of the module
+    const int    cid,      // connector of the module that has the image for the features
     const geo_t *geo,
     const int    nhess,    // number of values in the hessian buffer
     const int    maxfeat)
@@ -224,14 +238,14 @@ create_nodes(
     dt_graph_t  *graph,
     dt_module_t *module)
 {
-  if(!dt_connected(module->connector + 1))
+  if(!dt_connected(module->connector + C_SRC) || !dt_connected(module->connector + C_DST))
   { // there is nothing to align
-    dt_connector_bypass(graph, module, 0, 2);
+    dt_connector_bypass(graph, module, C_INPUT, C_OUTPUT);
     return;
   }
-  const dt_roi_t roi_ref = module->connector[0].roi;
-  const dt_roi_t roi_tgt = module->connector[1].roi;
-  const dt_roi_t roi_out = module->connector[2].roi;
+  const dt_roi_t roi_ref = module->connector[C_DST].roi;
+  const dt_roi_t roi_tgt = module->connector[C_SRC].roi;
+  const dt_roi_t roi_out = module->connector[C_OUTPUT].roi;
   const int maxfeat = CLAMP(param_int(module, "maxfeat"), 8, MAX_FEAT);
   const int maxdim  = param_int(module, "maxdim");
 
@@ -245,15 +259,15 @@ create_nodes(
     snprintf(module->graph->gui_msg_buf, sizeof(module->graph->gui_msg_buf),
         "algnsurf: the images are too small");
     module->graph->gui_msg = module->graph->gui_msg_buf;
-    dt_connector_bypass(graph, module, 1, 2);
+    dt_connector_bypass(graph, module, C_INPUT, C_OUTPUT);
     return;
   }
 
   const dt_roi_t mt_roi = {.wd = maxfeat, .ht = 1};
   const dt_roi_t h_roi  = {.wd = 13, .ht = 1};
 
-  const int id_ref = add_surf_nodes(graph, module, 0, &geo_ref, nhess_ref, maxfeat);
-  const int id_tgt = add_surf_nodes(graph, module, 1, &geo_tgt, nhess_tgt, maxfeat);
+  const int id_ref = add_surf_nodes(graph, module, C_DST, &geo_ref, nhess_ref, maxfeat);
+  const int id_tgt = add_surf_nodes(graph, module, C_SRC, &geo_tgt, nhess_tgt, maxfeat);
 
   const int id_match = dt_node_add(graph, module, "algnsurf", "match",
       WG(maxfeat, 64), DT_LOCAL_SIZE_Y, 1, 0, 0, 3,
@@ -270,9 +284,13 @@ create_nodes(
       "tgt",   "read",  "ssbo", "f32", dt_no_roi,
       "match", "read",  "ssbo", "u32", dt_no_roi,
       "h",     "write", "ssbo", "u32", &h_roi);
+  const align_pc_t apc = {
+    .dst = {roi_ref.wd, roi_ref.ht},
+    .src = {roi_tgt.wd, roi_tgt.ht},
+  };
   const int id_align = dt_node_add(graph, module, "algnsurf", "align",
-      roi_out.wd, roi_out.ht, 1, 0, 0, 3,
-      "input2", "read",  "rgba", "*",   dt_no_roi,
+      roi_out.wd, roi_out.ht, 1, sizeof(apc), (const int *)&apc, 3,
+      "input",  "read",  "rgba", "*",   dt_no_roi,
       "output", "write", "rgba", "f16", &roi_out,
       "h",      "read",  "ssbo", "u32", dt_no_roi);
 
@@ -282,7 +300,7 @@ create_nodes(
   CONN(dt_node_connect(graph, id_tgt, 2, id_solve, 1));
   CONN(dt_node_connect(graph, id_match, 2, id_solve, 2));
   CONN(dt_node_connect(graph, id_solve, 3, id_align, 2));
-  dt_connector_copy(graph, module, 1, id_align, 0);
-  dt_connector_copy(graph, module, 2, id_align, 1);
-  graph->node[id_align].connector[0].flags |= s_conn_smooth; // sample the target with bilinear filtering
+  dt_connector_copy(graph, module, C_INPUT,  id_align, 0);
+  dt_connector_copy(graph, module, C_OUTPUT, id_align, 1);
+  graph->node[id_align].connector[0].flags |= s_conn_smooth; // sample the input with bilinear filtering
 }

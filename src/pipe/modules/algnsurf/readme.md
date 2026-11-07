@@ -1,10 +1,10 @@
 # algnsurf: align a still image to a reference image
 
-this module warps a target image so that it matches a reference image. it is
+this module warps an image so that it matches a reference image. it is
 meant for burst photographs and exposure brackets taken by hand, for instance
 in front of `hdrmerge`. it needs no manual input. the module detects features
 in both images, matches them, estimates an affine matrix or a homography, and
-resamples the target.
+resamples the image.
 
 the feature detector and descriptor are a port of
 [gpusurf](https://asrl.utias.utoronto.ca/code/gpusurf/) by paul furgale and chi
@@ -16,8 +16,16 @@ the luminance to a logarithmic scale before it detects features, so a change
 of exposure only adds a constant. the descriptors are also normalised. this
 means you can align the frames of an exposure bracket.
 
-if the module finds no valid transformation, it copies the target image to the
-output. if the target is not connected, it copies the reference image.
+the images for the feature detection are separate from the image that the
+module warps. connect the same image to `input` and `alignsrc` to align it
+directly. you can also detect features in a version of the image that is easy
+to match, and warp a different version, for instance a raw image before
+demosaic. the three images can have different sizes. the matrix is relative to
+the image size.
+
+if the module finds no valid transformation, it copies the input image to the
+output. if `alignsrc` or `aligndst` is not connected, it copies the input image
+as well.
 
 ## parameters
 
@@ -30,9 +38,10 @@ output. if the target is not connected, it copies the reference image.
 
 ## connectors
 
-* `input` the reference image. the output has the size of this image
-* `input2` the target image. the module warps this image
-* `output` the target image, aligned to the reference image. the area outside of the target image is black
+* `input` the image pixels that the module warps. the output has the size of this image
+* `output` the warped input image, aligned to the reference image. the area where the input image has no data is black
+* `alignsrc` the image of which the module detects features. the module aligns this image. it is usually a version of `input`, for instance with a different tone curve, or the same image
+* `aligndst` the reference image of which the module detects features. it stays static
 
 ## technical
 
@@ -48,10 +57,10 @@ the remaining nodes work on both images.
 
 * `match` finds the nearest and second nearest descriptor. it keeps a match if it passes the ratio test, has the same sign of the laplacian, and is the best match in both directions
 * `solve` runs in one work group. each thread tests random minimal samples (RANSAC). the best hypothesis is refitted to its inliers with linear least squares, then with Gauss-Newton iterations that minimise the reprojection error. the matrix is converted to the pixel coordinates of the full resolution images. a result needs at least 8 inliers
-* `align` samples the target with bilinear filtering at the position the matrix gives for each output pixel
+* `align` samples the input image with bilinear filtering at the position the matrix gives for each output pixel
 
-the matrix maps the pixel corner coordinates of the reference image to the pixel
-corner coordinates of the target image.
+the matrix maps the pixel corner coordinates of the `aligndst` image to the pixel
+corner coordinates of the `alignsrc` image.
 
 ## limitations
 
