@@ -1,0 +1,45 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+#include "surf.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 1, binding = 0) uniform sampler2D img_in;
+layout(set = 1, binding = 1, std430) buffer buf_rows { uint rows[]; };
+
+// Compute the sums along the rows of the integral image.
+// The result goes to a buffer with the layout of the integral image.
+// The first row of the buffer is not set.
+// One invocation processes one row.
+// The invocation reduces the input image by the factor push.dim.z.
+// It averages the luminance of each block of pixels.
+// Then it converts the luminance to a logarithmic scale.
+// The logarithm removes the effect of different exposure times.
+// The invocation quantises the value to 12 bit and adds it to the sum.
+void main()
+{
+  const int y = int(gl_GlobalInvocationID.x);
+  const int w = push.dim.x;
+  const int h = push.dim.y;
+  const int s = push.dim.z;
+  if(y >= h) return;
+  const int stride = w + 1;
+  const ivec2 isz = textureSize(img_in, 0);
+  uint acc = 0u;
+  rows[(y+1) * stride] = 0u;
+  for(int x = 0; x < w; x++)
+  {
+    float lum = 0.0;
+    for(int dy = 0; dy < s; dy++)
+      for(int dx = 0; dx < s; dx++)
+        lum += luminance_rec2020(texelFetch(img_in, min(ivec2(x*s+dx, y*s+dy), isz-1), 0).rgb);
+    lum /= float(s*s);
+    lum = lum > 0.0 ? min(lum, 16.0) : 0.0; // this also removes NaN
+    const float v = log2(1.0 + 255.0 * lum) / 12.0;
+    acc += uint(v * 4095.0 + 0.5);
+    rows[(y+1) * stride + x + 1] = acc;
+  }
+}

@@ -1,0 +1,324 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#define SURF_NO_PUSH
+#include "shared.glsl"
+#include "surf.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(push_constant, std140) uniform push_t
+{
+  ivec2 dim;    // size of the reference image in feature coordinates
+  vec2  factor; // reduction factors of the reference and the target image
+} push;
+
+layout(set = 1, binding = 0, std430) readonly buffer buf_ref { uint ref_count; float ref_feat[]; };
+layout(set = 1, binding = 1, std430) readonly buffer buf_tgt { uint tgt_count; float tgt_feat[]; };
+layout(set = 1, binding = 2, std430) readonly buffer buf_mt  { uint match_tgt[]; };
+layout(set = 1, binding = 3, std430) writeonly buffer buf_h  { uint valid; uint inliers; uint matches; uint pad; float h[9]; };
+
+#define MAXM 1024         // maximum number of matches
+#define ITER 24           // hypotheses of each invocation
+#define MIN_INLIERS 8u    // the least number of inliers of a valid result
+
+shared uint  sh_mi[MAXM];
+shared uint  sh_mj[MAXM];
+shared uint  sh_nm;
+shared uint  sh_key;
+shared float sh_h[8];
+
+// The solver works with coordinates in the reduced reference image.
+// It moves the origin to the centre and scales the longer side to the range -1 to 1.
+vec2  centre() { return 0.5 * vec2(push.dim); }
+float scale()  { return 0.5 * float(max(push.dim.x, push.dim.y)); }
+
+vec2 ref_pt(uint m)
+{
+  const uint b = sh_mi[m] * FEAT_STRIDE;
+  return (vec2(ref_feat[b + KP_X], ref_feat[b + KP_Y]) - centre()) / scale();
+}
+
+vec2 tgt_pt(uint m)
+{
+  const uint b = sh_mj[m] * FEAT_STRIDE;
+  const float k = push.factor.y / push.factor.x;
+  return (k * vec2(tgt_feat[b + KP_X], tgt_feat[b + KP_Y]) - centre()) / scale();
+}
+
+uint pcg(inout uint state)
+{
+  state = state * 747796405u + 2891336453u;
+  const uint w = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
+  return (w >> 22u) ^ w;
+}
+
+// Add the two equations of one correspondence to the normal equations.
+// The model has n unknowns: 6 for an affine matrix and 8 for a homography.
+void ne_add(inout float A[64], inout float b[8], int n, vec2 p, vec2 q)
+{
+  float r1[8] = float[8](p.x, p.y, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+  float r2[8] = float[8](0.0, 0.0, 0.0, p.x, p.y, 1.0, 0.0, 0.0);
+  if(n == 8)
+  {
+    r1[6] = -q.x * p.x;  r1[7] = -q.x * p.y;
+    r2[6] = -q.y * p.x;  r2[7] = -q.y * p.y;
+  }
+  for(int i = 0; i < n; i++)
+  {
+    for(int j = 0; j < n; j++)
+      A[i*8+j] += r1[i] * r1[j] + r2[i] * r2[j];
+    b[i] += r1[i] * q.x + r2[i] * q.y;
+  }
+}
+
+// Add the equations of the linearised reprojection error of one correspondence.
+// The variable x is the current estimate. The equations give the update of x.
+void gn_add(inout float A[64], inout float b[8], int n, float x[8], vec2 p, vec2 q)
+{
+  const float w = x[6] * p.x + x[7] * p.y + 1.0;
+  const vec2 e = vec2(x[0] * p.x + x[1] * p.y + x[2], x[3] * p.x + x[4] * p.y + x[5]) / w;
+  const vec2 r = q - e;
+  float j1[8] = float[8](p.x / w, p.y / w, 1.0 / w, 0.0, 0.0, 0.0, -e.x * p.x / w, -e.x * p.y / w);
+  float j2[8] = float[8](0.0, 0.0, 0.0, p.x / w, p.y / w, 1.0 / w, -e.y * p.x / w, -e.y * p.y / w);
+  for(int i = 0; i < n; i++)
+  {
+    for(int j = 0; j < n; j++)
+      A[i*8+j] += j1[i] * j1[j] + j2[i] * j2[j];
+    b[i] += j1[i] * r.x + j2[i] * r.y;
+  }
+}
+
+// Solve the normal equations with Gauss elimination and partial pivoting.
+bool ne_solve(inout float A[64], inout float b[8], int n, out float x[8])
+{
+  for(int i = 0; i < 8; i++) x[i] = 0.0;
+  for(int c = 0; c < n; c++)
+  {
+    int piv = c;
+    for(int r = c+1; r < n; r++)
+      if(abs(A[r*8+c]) > abs(A[piv*8+c])) piv = r;
+    if(!(abs(A[piv*8+c]) > 1e-9)) return false;
+    if(piv != c)
+    {
+      for(int j = 0; j < n; j++)
+      {
+        const float t = A[c*8+j]; A[c*8+j] = A[piv*8+j]; A[piv*8+j] = t;
+      }
+      const float t = b[c]; b[c] = b[piv]; b[piv] = t;
+    }
+    for(int r = c+1; r < n; r++)
+    {
+      const float f = A[r*8+c] / A[c*8+c];
+      for(int j = c; j < n; j++) A[r*8+j] -= f * A[c*8+j];
+      b[r] -= f * b[c];
+    }
+  }
+  for(int r = n-1; r >= 0; r--)
+  {
+    float v = b[r];
+    for(int j = r+1; j < n; j++) v -= A[r*8+j] * x[j];
+    x[r] = v / A[r*8+r];
+  }
+  return true;
+}
+
+// Return false if the matrix is not a plausible transformation between two photographs.
+bool plausible(float x[8])
+{
+  for(int i = 0; i < 8; i++)
+    if(isnan(x[i]) || isinf(x[i])) return false;
+  const float det = x[0] * x[4] - x[1] * x[3];
+  if(!(det > 0.25 && det < 4.0)) return false;
+  if(abs(x[6]) + abs(x[7]) > 0.5) return false;
+  if(abs(x[2]) > 2.0 || abs(x[5]) > 2.0) return false;
+  return true;
+}
+
+vec2 project(float x[8], vec2 p)
+{
+  const float w = x[6] * p.x + x[7] * p.y + 1.0;
+  if(!(w > 1e-3)) return vec2(1e10);
+  return vec2(x[0] * p.x + x[1] * p.y + x[2], x[3] * p.x + x[4] * p.y + x[5]) / w;
+}
+
+bool is_inlier(float x[8], uint m)
+{
+  return length(project(x, ref_pt(m)) - tgt_pt(m)) * scale() <= params.rthresh;
+}
+
+// The sum of the squared reprojection errors. The error of an outlier has a upper limit.
+float robust_cost(float x[8], uint nm)
+{
+  const float t2 = params.rthresh * params.rthresh;
+  float c = 0.0;
+  for(uint m = 0u; m < nm; m++)
+  {
+    const vec2 e = (project(x, ref_pt(m)) - tgt_pt(m)) * scale();
+    c += min(dot(e, e), t2);
+  }
+  return c;
+}
+
+uint count_inliers(float x[8], uint nm)
+{
+  uint c = 0u;
+  for(uint m = 0u; m < nm; m++)
+    if(is_inlier(x, m)) c++;
+  return c;
+}
+
+void write_result(bool ok, uint ninl, uint nm, float x[8])
+{
+  valid = ok ? 1u : 0u;
+  inliers = ninl;
+  matches = nm;
+  pad = 0u;
+  mat3 hf = mat3(1.0);
+  if(ok)
+  { // convert the matrix to full resolution pixel coordinates of the images
+    const mat3 hn = transpose(mat3(x[0], x[1], x[2], x[3], x[4], x[5], x[6], x[7], 1.0));
+    const float sc = scale();
+    const vec2  c  = centre();
+    const mat3 t = mat3(1.0/sc, 0.0, 0.0,  0.0, 1.0/sc, 0.0,  -c.x/sc, -c.y/sc, 1.0);
+    const float sr = push.factor.x;
+    const mat3 s = mat3(sr, 0.0, 0.0,  0.0, sr, 0.0,  0.0, 0.0, 1.0);
+    hf = s * inverse(t) * hn * t * inverse(s);
+    hf = hf * (1.0 / hf[2][2]);
+  }
+  for(int c = 0; c < 3; c++)
+    for(int r = 0; r < 3; r++)
+      h[c*3 + r] = hf[c][r];
+}
+
+// Estimate the transformation from the target image to the reference image.
+// The result maps coordinates of the reference image to coordinates of the target image.
+// The code runs in one work group.
+// First, the code collects the matches in a compact list.
+// Then each invocation tests hypotheses with random minimal samples (RANSAC).
+// The best hypothesis is the one with the most inliers.
+// Finally, one invocation refits the model to all inliers.
+// It starts with a linear least squares fit and then minimises the reprojection error.
+// The result is a 3x3 matrix in column order.
+void main()
+{
+  const uint tid = gl_LocalInvocationIndex;
+  if(tid == 0u)
+  {
+    const uint nr = min(min(ref_count, uint(params.maxfeat)), uint(MAXM));
+    const uint nt = min(tgt_count, uint(params.maxfeat));
+    uint nm = 0u;
+    for(uint i = 0u; i < nr; i++)
+    {
+      const uint t = match_tgt[i];
+      if(t != 0u && t - 1u < nt)
+      {
+        sh_mi[nm] = i;
+        sh_mj[nm] = t - 1u;
+        nm++;
+      }
+    }
+    sh_nm  = nm;
+    sh_key = 0u;
+  }
+  barrier();
+
+  const uint nm = sh_nm;
+  const int  n  = params.model == 0 ? 6 : 8;
+  const int  nmin = n / 2;
+  float none[8] = float[8](0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+  if(nm < uint(nmin))
+  {
+    if(tid == 0u) write_result(false, 0u, nm, none);
+    return;
+  }
+
+  uint rng = tid * 9781u + 1u;
+  uint best_score = 0u;
+  float best_h[8] = none;
+  for(int it = 0; it < ITER; it++)
+  {
+    uint idx[4];
+    for(int a = 0; a < nmin; a++)
+    {
+      idx[a] = pcg(rng) % nm;
+      for(int tries = 0; tries < 8; tries++)
+      {
+        bool dup = false;
+        for(int b = 0; b < a; b++) dup = dup || (idx[b] == idx[a]);
+        if(!dup) break;
+        idx[a] = pcg(rng) % nm;
+      }
+    }
+    float A[64];
+    float b[8];
+    for(int i = 0; i < 64; i++) A[i] = 0.0;
+    for(int i = 0; i < 8; i++)  b[i] = 0.0;
+    for(int a = 0; a < nmin; a++) ne_add(A, b, n, ref_pt(idx[a]), tgt_pt(idx[a]));
+    float x[8];
+    if(!ne_solve(A, b, n, x) || !plausible(x)) continue;
+    const uint score = count_inliers(x, nm);
+    if(score > best_score)
+    {
+      best_score = score;
+      best_h = x;
+    }
+  }
+  atomicMax(sh_key, (best_score << 8u) | (255u - tid));
+  barrier();
+  const uint key = sh_key;
+  if((key >> 8u) != 0u && (key & 255u) == 255u - tid)
+    for(int i = 0; i < 8; i++) sh_h[i] = best_h[i];
+  barrier();
+  if(tid != 0u) return;
+
+  if((key >> 8u) == 0u)
+  {
+    write_result(false, 0u, nm, none);
+    return;
+  }
+  float x[8];
+  for(int i = 0; i < 8; i++) x[i] = sh_h[i];
+  uint cnt = count_inliers(x, nm);
+  for(int pass = 0; pass < 5; pass++)
+  {
+    float A[64];
+    float b[8];
+    for(int i = 0; i < 64; i++) A[i] = 0.0;
+    for(int i = 0; i < 8; i++)  b[i] = 0.0;
+    uint used = 0u;
+    for(uint m = 0u; m < nm; m++)
+      if(is_inlier(x, m))
+      {
+        ne_add(A, b, n, ref_pt(m), tgt_pt(m));
+        used++;
+      }
+    float xn[8];
+    if(used < uint(nmin) || !ne_solve(A, b, n, xn) || !plausible(xn)) break;
+    const uint cn = count_inliers(xn, nm);
+    if(cn < cnt) break;
+    x = xn;
+    cnt = cn;
+  }
+  // Minimise the reprojection error of the inliers with Gauss-Newton iterations.
+  for(int pass = 0; pass < 5; pass++)
+  {
+    float A[64];
+    float b[8];
+    for(int i = 0; i < 64; i++) A[i] = 0.0;
+    for(int i = 0; i < 8; i++)  b[i] = 0.0;
+    for(uint m = 0u; m < nm; m++)
+      if(is_inlier(x, m))
+        gn_add(A, b, n, x, ref_pt(m), tgt_pt(m));
+    float d[8];
+    if(!ne_solve(A, b, n, d)) break;
+    float xn[8];
+    for(int i = 0; i < 8; i++) xn[i] = x[i] + d[i];
+    if(!plausible(xn)) break;
+    if(robust_cost(xn, nm) > robust_cost(x, nm)) break;
+    x = xn;
+  }
+  cnt = count_inliers(x, nm);
+  write_result(cnt >= MIN_INLIERS, cnt, nm, x);
+}

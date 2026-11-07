@@ -1,0 +1,6 @@
+thresh:float:1:3.0
+ratio:float:1:0.75
+rthresh:float:1:3.0
+maxfeat:int:1:500
+maxdim:int:1:2048
+model:int:1:1

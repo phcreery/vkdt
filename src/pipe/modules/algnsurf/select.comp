@@ -1,0 +1,38 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+#include "surf.glsl"
+
+layout(local_size_x = DT_LOCAL_SIZE_X, local_size_y = DT_LOCAL_SIZE_Y, local_size_z = 1) in;
+
+layout(set = 1, binding = 0, std430) readonly buffer buf_cand { uint cand_count; float cand[]; };
+layout(set = 1, binding = 1, std430) buffer buf_sel { uint sel_count; float sel[]; };
+
+// Select the strongest candidates and sort them by response.
+// One invocation processes one candidate.
+// The invocation counts the candidates with a larger response.
+// This is the rank of the candidate.
+// If two responses are equal, the candidate with the smaller index ranks first.
+// The invocation copies the candidate to the position of its rank.
+// The dispatch has CAND_MAX invocations in a grid with a width of 128.
+void main()
+{
+  const uint idx = gl_GlobalInvocationID.y * 128u + gl_GlobalInvocationID.x;
+  const uint n = min(cand_count, uint(CAND_MAX));
+  const uint maxfeat = uint(params.maxfeat);
+  if(idx == 0u) sel_count = min(n, maxfeat);
+  if(idx >= n) return;
+
+  const float r = cand[idx * KP_STRIDE + KP_RESP];
+  uint rank = 0u;
+  for(uint j = 0u; j < n; j++)
+  {
+    const float rj = cand[j * KP_STRIDE + KP_RESP];
+    if(rj > r || (rj == r && j < idx)) rank++;
+  }
+  if(rank >= maxfeat) return;
+  for(uint k = 0u; k < KP_STRIDE; k++)
+    sel[rank * KP_STRIDE + k] = cand[idx * KP_STRIDE + k];
+}

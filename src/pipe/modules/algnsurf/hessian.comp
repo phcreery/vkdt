@@ -1,0 +1,49 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+#include "area.glsl"
+
+layout(local_size_x = DT_LOCAL_SIZE_X, local_size_y = DT_LOCAL_SIZE_Y, local_size_z = 1) in;
+
+layout(set = 1, binding = 1, std430) writeonly buffer buf_hess { float hess[]; };
+
+// Compute the fast hessian response of all octaves and intervals.
+// The z index of the invocation is the octave times the number of intervals plus the interval.
+// The response is the determinant of the box filter approximation of the hessian.
+// The last bit of the value stores the sign of the laplacian.
+void main()
+{
+  const ivec3 id = ivec3(gl_GlobalInvocationID);
+  const int o = id.z / SURF_INTERVALS;
+  const int i = id.z % SURF_INTERVALS;
+  if(o >= SURF_OCTAVES) return;
+  const ivec4 sz = push.size[o];
+  if(id.x >= sz.x || id.y >= sz.y) return;
+
+  const float fs = push.scale[o][i];
+  const float x = float(id.x * sz.w + sz.z);
+  const float y = float(id.y * sz.w + sz.z);
+  const float t  = 1.0 + L1;         // ratio of the lobe sizes
+  const float mw = L2 * 0.5 * fs;    // half of the short side of the filter
+  const float mh = t * fs;           // half of the long side of the filter
+  const float inv = 1.0 / (fs * fs);
+
+  const float dyy = inv * (box_area(x-mw, y-mh, x+mw, y+mh) - t * box_area(x-mw, y-fs, x+mw, y+fs));
+  const float dxx = inv * (box_area(x-mh, y-mw, x+mh, y+mw) - t * box_area(x-fs, y-mw, x+fs, y+mw));
+  const float co = 0.5 * (L4 + L3) * fs; // offset of the centre of the xy lobes
+  const float hw = 0.5 * L3 * fs;        // half width of the xy lobes
+  const float dxy = inv * (
+      box_area(x-co-hw, y-co-hw, x-co+hw, y-co+hw)
+    - box_area(x-co-hw, y+co-hw, x-co+hw, y+co+hw)
+    + box_area(x+co-hw, y+co-hw, x+co+hw, y+co+hw)
+    - box_area(x+co-hw, y-co-hw, x+co+hw, y-co+hw));
+  const float k = (2.0 + 2.0*L1) * L2 / (4.0 * L3 * L3);
+  const float dxy_scale = EDGE_SCALE * k * k;
+
+  const float det = dxx * dyy - dxy_scale * dxy * dxy;
+  uint bits = floatBitsToUint(det);
+  bits = (dxx + dyy > 0.0) ? (bits | 1u) : (bits & ~1u);
+  hess[push.offset[o] + (i * sz.y + id.y) * sz.x + id.x] = uintBitsToFloat(bits);
+}

@@ -1,0 +1,31 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+#include "surf.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 1, binding = 0, std430) readonly  buffer buf_rows { uint rows[]; };
+layout(set = 1, binding = 1, std430) writeonly buffer buf_ii   { uint ii[]; };
+
+// Add the sums along the columns of the row sums.
+// The result is the integral image.
+// One invocation processes one column.
+// The invocation also sets the first row to zero.
+void main()
+{
+  const int x = int(gl_GlobalInvocationID.x);
+  const int w = push.dim.x;
+  const int h = push.dim.y;
+  if(x > w) return;
+  const int stride = w + 1;
+  uint acc = 0u;
+  ii[x] = 0u;
+  for(int y = 1; y <= h; y++)
+  {
+    acc += rows[y * stride + x];
+    ii[y * stride + x] = acc;
+  }
+}

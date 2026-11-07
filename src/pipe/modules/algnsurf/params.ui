@@ -1,0 +1,6 @@
+model:combo:affine:homography
+maxfeat:slider:20:1024
+maxdim:slider:256:4096
+thresh:slider:0:50
+ratio:slider:0.5:0.95
+rthresh:slider:0.5:10

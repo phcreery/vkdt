@@ -1,0 +1,162 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+#include "area.glsl"
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 1, binding = 1, std430) readonly buffer buf_sel  { uint sel_count; float sel[]; };
+layout(set = 1, binding = 2, std430) writeonly buffer buf_feat { uint feat_count; float feat[]; };
+
+const float PI = 3.14159265359;
+
+shared float sh_kp[KP_STRIDE];
+shared float sh_dx[400];  // weighted haar responses in x direction
+shared float sh_dy[400];  // weighted haar responses in y direction
+shared float sh_ang[169]; // angle of the haar responses
+shared float sh_mag[256]; // squared length of the window sums
+shared float sh_win[256]; // angle of the window sums
+shared float sh_desc[DESC_DIM];
+shared float sh_len;
+
+// The function atan() is not defined for two arguments of zero.
+float angle_of(float y, float x)
+{
+  return (x == 0.0 && y == 0.0) ? 0.0 : atan(y, x);
+}
+
+float gauss(float d, float sigma)
+{
+  return exp(-0.5 * d * d / (sigma * sigma)) / (sigma * 2.50662827463);
+}
+
+// Compute the orientation and the descriptor of one keypoint.
+// One work group processes one keypoint.
+// The orientation uses haar wavelets of size 4s on a 13x13 grid with a spacing of s.
+// The variable s is the scale of the keypoint.
+// A sliding window of 60 degrees finds the direction with the largest sum of responses.
+// The descriptor uses 4x4 sub regions with 5x5 samples each.
+// The sample grid is rotated to the orientation of the keypoint.
+// Each sample uses haar wavelets of size 2s.
+// Each sub region stores the sums of dx, |dx|, dy and |dy|.
+// The code normalises the descriptor to a length of one.
+void main()
+{
+  const uint k = gl_WorkGroupID.x;
+  const uint tid = gl_LocalInvocationIndex;
+  if(k == 0u && tid == 0u) feat_count = sel_count;
+  if(k >= sel_count) return;
+
+  if(tid < KP_STRIDE) sh_kp[tid] = sel[k * KP_STRIDE + tid];
+  barrier();
+  const float kx = sh_kp[KP_X];
+  const float ky = sh_kp[KP_Y];
+  const float s  = sh_kp[KP_SIZE];
+
+  // Haar responses for the orientation.
+  sh_mag[tid] = -1.0;
+  sh_win[tid] = 0.0;
+  if(tid < 169u)
+  {
+    const float i = float(tid % 13u) - 6.0;
+    const float j = float(tid / 13u) - 6.0;
+    const float cx = kx + i * s;
+    const float cy = ky + j * s;
+    const float dx = box_area(cx, cy-2.0*s, cx+2.0*s, cy+2.0*s) - box_area(cx-2.0*s, cy-2.0*s, cx, cy+2.0*s);
+    const float dy = box_area(cx-2.0*s, cy, cx+2.0*s, cy+2.0*s) - box_area(cx-2.0*s, cy-2.0*s, cx+2.0*s, cy);
+    const float g = gauss(i, 2.0) * gauss(j, 2.0);
+    sh_dx[tid]  = dx * g;
+    sh_dy[tid]  = dy * g;
+    sh_ang[tid] = angle_of(dy, dx);
+  }
+  barrier();
+
+  // Sum the responses in a window of 60 degrees. The window starts at the own angle.
+  if(tid < 169u)
+  {
+    const float a0 = sh_ang[tid];
+    float wx = 0.0, wy = 0.0;
+    for(int m = 0; m < 169; m++)
+    {
+      float a = sh_ang[m];
+      if(a < a0) a += 2.0 * PI;
+      if(a < a0 + PI / 3.0)
+      {
+        wx += sh_dx[m];
+        wy += sh_dy[m];
+      }
+    }
+    sh_mag[tid] = wx*wx + wy*wy;
+    sh_win[tid] = angle_of(wy, wx);
+  }
+  barrier();
+
+  // Find the window with the largest sum.
+  for(uint stride = 128u; stride > 0u; stride >>= 1u)
+  {
+    if(tid < stride && sh_mag[tid] < sh_mag[tid + stride])
+    {
+      sh_mag[tid] = sh_mag[tid + stride];
+      sh_win[tid] = sh_win[tid + stride];
+    }
+    barrier();
+  }
+  const float theta = -sh_win[0];
+  const float ct = cos(theta);
+  const float st = sin(theta);
+  barrier(); // sh_dx and sh_dy are free now
+
+  // Haar responses for the descriptor.
+  for(uint n = tid; n < 400u; n += 256u)
+  {
+    const float u = float(n % 20u) - 9.5;
+    const float v = float(n / 20u) - 9.5;
+    const float px = kx + ( ct * u + st * v) * s;
+    const float py = ky + (-st * u + ct * v) * s;
+    const float g = gauss(u, 3.3) * gauss(v, 3.3);
+    const float dx = g * (box_area(px, py-s, px+s, py+s) - box_area(px-s, py-s, px, py+s));
+    const float dy = g * (box_area(px-s, py, px+s, py+s) - box_area(px-s, py-s, px+s, py));
+    sh_dx[n] = dx * ct - dy * st;
+    sh_dy[n] = dx * st + dy * ct;
+  }
+  barrier();
+
+  // Sum the responses of each sub region.
+  if(tid < 16u)
+  {
+    const uint bx = tid & 3u;
+    const uint by = tid >> 2u;
+    float sx = 0.0, ax = 0.0, sy = 0.0, ay = 0.0;
+    for(uint v = 0u; v < 5u; v++)
+      for(uint u = 0u; u < 5u; u++)
+      {
+        const uint n = (by * 5u + v) * 20u + bx * 5u + u;
+        sx += sh_dx[n]; ax += abs(sh_dx[n]);
+        sy += sh_dy[n]; ay += abs(sh_dy[n]);
+      }
+    sh_desc[tid*4u + 0u] = sx;
+    sh_desc[tid*4u + 1u] = ax;
+    sh_desc[tid*4u + 2u] = sy;
+    sh_desc[tid*4u + 3u] = ay;
+  }
+  barrier();
+
+  if(tid == 0u)
+  {
+    float l = 0.0;
+    for(int n = 0; n < DESC_DIM; n++) l += sh_desc[n] * sh_desc[n];
+    sh_len = max(sqrt(l), 1e-20);
+  }
+  barrier();
+
+  const uint b = k * FEAT_STRIDE;
+  if(tid < KP_STRIDE)
+  {
+    float val = sh_kp[tid];
+    if(tid == uint(KP_ANGLE)) val = theta;
+    feat[b + tid] = val;
+  }
+  if(tid < uint(DESC_DIM)) feat[b + KP_STRIDE + tid] = sh_desc[tid] / sh_len;
+}

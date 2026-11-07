@@ -1,0 +1,35 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+
+layout(local_size_x = DT_LOCAL_SIZE_X, local_size_y = DT_LOCAL_SIZE_Y, local_size_z = 1) in;
+
+layout(set = 1, binding = 0) uniform sampler2D img_tgt;
+layout(set = 1, binding = 1) uniform writeonly image2D img_out;
+layout(set = 1, binding = 2, std430) readonly buffer buf_h { uint valid; uint inliers; uint matches; uint pad; float h[9]; };
+
+// Warp the target image to the reference image.
+// The matrix maps pixel coordinates of the reference image to pixel coordinates of the target image.
+// The coordinates are the positions of the pixel corners.
+// This means that the centre of the first pixel is at (0.5, 0.5).
+// The shader writes black where the target image has no data.
+// If the solver found no valid matrix, the shader copies the target image.
+void main()
+{
+  const ivec2 dst = ivec2(gl_GlobalInvocationID.xy);
+  const ivec2 size = imageSize(img_out);
+  if(dst.x >= size.x || dst.y >= size.y) return;
+
+  mat3 hm = mat3(1.0);
+  if(valid != 0u)
+    hm = mat3(h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], h[8]);
+
+  const vec3 q = hm * vec3(vec2(dst) + 0.5, 1.0);
+  const vec2 uv = q.xy / q.z / vec2(textureSize(img_tgt, 0));
+  vec4 rgba = vec4(0.0);
+  if(q.z > 0.0 && all(greaterThanEqual(uv, vec2(0.0))) && all(lessThanEqual(uv, vec2(1.0))))
+    rgba = texture(img_tgt, uv);
+  imageStore(img_out, dst, rgba);
+}

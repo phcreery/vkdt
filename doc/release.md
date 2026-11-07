@@ -82,6 +82,7 @@ new modules:
 * `oidn` open image denoise
 * `reinhard` tonemapper (phcreery)
 * `hdrmerge` extend dynamic range (phcreery)
+* `algnsurf` align still images with gpu surf features and a homography (phcreery)
 * `overlay` render text and latency data
 * `opendrt` full-featured display transform
 * `o-jxl` jpeg-xl write support

@@ -111,6 +111,7 @@ also see the [list of presets shipped with vkdt](../../../doc/howto/presets/pres
 
 **technical**
 
+* [algnsurf: align two still images with gpu surf features and a homography](./algnsurf/readme.md)
 * [align: align animation frames or burst photographs](./align/readme.md)
 * [blend: masked frame blending](./blend/readme.md)
 * [cnngenin: generate random input for neural network training](./cnngenin/readme.md)

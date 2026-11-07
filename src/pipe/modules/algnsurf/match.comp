@@ -1,0 +1,71 @@
+#version 460
+#extension GL_GOOGLE_include_directive    : enable
+#extension GL_EXT_nonuniform_qualifier    : enable
+
+#include "shared.glsl"
+#include "surf.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 1, binding = 0, std430) readonly buffer buf_ref { uint ref_count; float ref_feat[]; };
+layout(set = 1, binding = 1, std430) readonly buffer buf_tgt { uint tgt_count; float tgt_feat[]; };
+layout(set = 1, binding = 2, std430) writeonly buffer buf_mt { uint match_tgt[]; };
+
+float desc_dist(uint ri, uint ti)
+{
+  const uint rb = ri * FEAT_STRIDE + KP_STRIDE;
+  const uint tb = ti * FEAT_STRIDE + KP_STRIDE;
+  float d = 0.0;
+  for(uint k = 0u; k < uint(DESC_DIM); k++)
+  {
+    const float e = ref_feat[rb + k] - tgt_feat[tb + k];
+    d += e * e;
+  }
+  return d;
+}
+
+bool same_sign(uint ri, uint ti)
+{
+  return ref_feat[ri * FEAT_STRIDE + KP_LAP] == tgt_feat[ti * FEAT_STRIDE + KP_LAP];
+}
+
+// Match the descriptors of the reference image to the descriptors of the target image.
+// One invocation processes one feature of the reference image.
+// It searches the two nearest descriptors in the target image.
+// Only features with the same sign of the laplacian can match.
+// The match must pass the ratio test: the best distance must be smaller than the second best by the given ratio.
+// The match must also be mutual: the reference feature must be the best match of the target feature.
+// The result is the index of the target feature plus one, or zero if there is no match.
+// The array has one entry for each reference feature.
+// This makes the result independent of the order of the invocations.
+void main()
+{
+  const uint i  = gl_GlobalInvocationID.x;
+  const uint nr = min(ref_count, uint(params.maxfeat));
+  const uint nt = min(tgt_count, uint(params.maxfeat));
+  if(i >= nr) return;
+  match_tgt[i] = 0u;
+
+  float best = 1e30, second = 1e30;
+  int bj = -1;
+  for(uint j = 0u; j < nt; j++)
+  {
+    if(!same_sign(i, j)) continue;
+    const float d = desc_dist(i, j);
+    if(d < best) { second = best; best = d; bj = int(j); }
+    else if(d < second) second = d;
+  }
+  if(bj < 0) return;
+  if(!(best < params.ratio * params.ratio * second)) return;
+
+  float rbest = 1e30;
+  int bi = -1;
+  for(uint r = 0u; r < nr; r++)
+  {
+    if(!same_sign(r, uint(bj))) continue;
+    const float d = desc_dist(r, uint(bj));
+    if(d < rbest) { rbest = d; bi = int(r); }
+  }
+  if(bi != int(i)) return;
+  match_tgt[i] = uint(bj) + 1u;
+}
